@@ -1,4 +1,4 @@
-Deploys sample Bref php app.
+Deploys sample Bref php app. Zipped archive provided `src/bref.zip` in case PHP tools not present on deployment machine.
 
 ```
 aws cloudformation package \
