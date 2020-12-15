@@ -1,7 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Log;
 
 /*
 |--------------------------------------------------------------------------
@@ -18,5 +18,6 @@ Route::get('/', function () {
     return view('welcome');
 });
 Route::get('/env', function () {
-    return response()->json($_ENV);
+    Log::debug($_ENV);
+    return '_ENV is logged in CloudWatch';
 });
