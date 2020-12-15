@@ -1,6 +1,6 @@
 Deploys sample Bref php app.
 
-
+```
 aws cloudformation package \
     --profile ${AWS_PROFILE} \
     --region us-east-1 \
@@ -16,3 +16,4 @@ aws cloudformation deploy \
     --parameter-overrides \
       Env=dev \
     --capabilities CAPABILITY_NAMED_IAM 
+```
