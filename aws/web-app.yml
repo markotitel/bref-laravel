@@ -16,13 +16,6 @@ Resources:
     Type: AWS::S3::Bucket
     Properties:
       BucketName: !Sub laravel-bref-assets-${AWS::AccountId}-${Env}
-
-  AssetsBucketCFOAI:
-    Type: 'AWS::CloudFront::CloudFrontOriginAccessIdentity'
-    Properties:
-      CloudFrontOriginAccessIdentityConfig:
-        Comment: !Ref Assets
-
   AssetsBucketPolicy:
     Type: AWS::S3::BucketPolicy
     Properties:
@@ -35,85 +28,45 @@ Resources:
             Resource: !Sub arn:aws:s3:::${Assets}/*
             Principal:
               CanonicalUser: !GetAtt AssetsBucketCFOAI.S3CanonicalUserId
-
-  ApiGatewayRole:
-    Type: AWS::IAM::Role
+  AssetsBucketCFOAI:
+    Type: 'AWS::CloudFront::CloudFrontOriginAccessIdentity'
     Properties:
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs
-      AssumeRolePolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service:
-                - "apigateway.amazonaws.com"
-            Action:
-              - "sts:AssumeRole"
-
-  RestApiLoggingRole:
-    Type : AWS::ApiGateway::Account
-    DependsOn: RestApi
-    Properties :
-      CloudWatchRoleArn: !GetAtt ApiGatewayRole.Arn
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: !Ref Assets
 
   RestApi:
-    Type: AWS::ApiGateway::RestApi
+    Type: AWS::ApiGatewayV2::Api
     Properties:
-      EndpointConfiguration:
-        Types:
-          - REGIONAL
+      ProtocolType: HTTP
+      Target: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${LaravelBref}/invocations
       Name: !Sub laravel-bref-${Env}
-
-  ProxyResource:
-    Type: 'AWS::ApiGateway::Resource'
-    Properties:
-      RestApiId: !Ref RestApi
-      ParentId: !GetAtt 
-        - RestApi
-        - RootResourceId
-      PathPart: '{proxy+}'
-  ProxyResourceANY:
-    Type: 'AWS::ApiGateway::Method'
-    Properties:
-      RestApiId: !Ref RestApi
-      ResourceId: !Ref ProxyResource
-      HttpMethod: ANY
-      AuthorizationType: NONE
-      Integration:
-        Type: AWS_PROXY
-        IntegrationHttpMethod: POST
-        Uri: !Sub >-
-          arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:laravel-bref-${Env}/invocations
-
-  ProxyResourceRootANY:
-    Type: 'AWS::ApiGateway::Method'
-    Properties:
-      RestApiId: !Ref RestApi
-      ResourceId: !GetAtt RestApi.RootResourceId
-      HttpMethod: ANY
-      AuthorizationType: NONE
-      Integration:
-        Type: AWS_PROXY
-        IntegrationHttpMethod: POST
-        Uri: !Sub >-
-          arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:laravel-bref-${Env}/invocations
-
-  RestApiDeployment:
-    Type: AWS::ApiGateway::Deployment
-    DependsOn: ProxyResourceRootANY
-    Properties:
-      RestApiId: !Ref RestApi
-      StageName: !Sub laravel-bref-${Env}
-
   RestApiLambdaInvokePermission:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
-      FunctionName: !Sub laravel-bref-${Env}
+      FunctionName: !Sub ${LaravelBref}
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*
-
+  LaravelBref:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      FunctionName: !Sub laravel-bref-${Env}
+      Layers:
+        - arn:aws:lambda:us-east-1:209497400698:layer:php-74-fpm:17
+      Handler: "index.php"
+      Runtime: "provided.al2"
+      MemorySize: 256
+      Timeout: 28
+      Environment:
+        Variables:
+          ENV: !Ref Env
+      Role: !GetAtt LambdaRole.Arn
+      Code: src/bref.zip
+  LaravelBrefLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${LaravelBref}"
+      RetentionInDays: 30
   LambdaRole:
     Type: AWS::IAM::Role
     Properties:
@@ -141,23 +94,3 @@ Resources:
       Roles:
         - !Ref LambdaRole
 
-  LaravelBref:
-    Type: "AWS::Lambda::Function"
-    Properties:
-      FunctionName: !Sub laravel-bref-${Env}
-      Layers:
-        - arn:aws:lambda:us-east-1:209497400698:layer:php-74-fpm:17
-      Handler: "index.php"
-      Runtime: "provided.al2"
-      MemorySize: 256
-      Timeout: 28
-      Environment:
-        Variables:
-          ENV: !Ref Env
-      Role: !GetAtt LambdaRole.Arn
-      Code: src/bref.zip
-  LaravelBrefLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub "/aws/lambda/${LaravelBref}"
-      RetentionInDays: 30
