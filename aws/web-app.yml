@@ -16,6 +16,7 @@ Resources:
     Type: AWS::S3::Bucket
     Properties:
       BucketName: !Sub laravel-bref-assets-${AWS::AccountId}-${Env}
+
   AssetsBucketPolicy:
     Type: AWS::S3::BucketPolicy
     Properties:
@@ -28,6 +29,7 @@ Resources:
             Resource: !Sub arn:aws:s3:::${Assets}/*
             Principal:
               CanonicalUser: !GetAtt AssetsBucketCFOAI.S3CanonicalUserId
+
   AssetsBucketCFOAI:
     Type: 'AWS::CloudFront::CloudFrontOriginAccessIdentity'
     Properties:
@@ -40,6 +42,22 @@ Resources:
       ProtocolType: HTTP
       Target: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${LaravelBref}/invocations
       Name: !Sub laravel-bref-${Env}
+
+  RestApiConfig:
+    Type: AWS::ApiGatewayV2::ApiGatewayManagedOverrides
+    Properties: 
+      ApiId: !Ref RestApi
+      Stage: 
+        AccessLogSettings:
+          DestinationArn: !GetAtt RestApiLogGroup.Arn
+          Format: '$context.identity.sourceIp - - [$context.requestTime] "$context.httpMethod $context.routeKey $context.path $context.protocol" $context.status $context.responseLength $context.requestId'
+
+  RestApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/http-api/laravel-bref-${Env}"
+      RetentionInDays: 30
+
   RestApiLambdaInvokePermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -47,6 +65,7 @@ Resources:
       FunctionName: !Sub ${LaravelBref}
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*
+
   LaravelBref:
     Type: "AWS::Lambda::Function"
     Properties:
@@ -62,11 +81,57 @@ Resources:
           ENV: !Ref Env
       Role: !GetAtt LambdaRole.Arn
       Code: src/bref.zip
+
+  LaravelBrefConsole:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      FunctionName: !Sub laravel-bref-console-${Env}
+      Layers:
+        - arn:aws:lambda:us-east-1:209497400698:layer:php-74:17
+        - arn:aws:lambda:us-east-1:209497400698:layer:console:31
+      Handler: "index.php"
+      Runtime: "provided.al2"
+      MemorySize: 256
+      Timeout: 28
+      Environment:
+        Variables:
+          ENV: !Ref Env
+      Role: !GetAtt LambdaRole.Arn
+      Code: src/bref.zip
+
+  LaravelBrefEventWorker:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      FunctionName: !Sub laravel-bref-eventworker-${Env}
+      Layers:
+        - arn:aws:lambda:us-east-1:209497400698:layer:php-74:17
+      Handler: "index.php"
+      Runtime: "provided.al2"
+      MemorySize: 256
+      Timeout: 28
+      Environment:
+        Variables:
+          ENV: !Ref Env
+      Role: !GetAtt LambdaRole.Arn
+      Code: src/bref.zip
+
+
+  LaravelBrefConsoleLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${LaravelBrefConsole}"
+      RetentionInDays: 30
+  LaravelBrefEventworkerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${LaravelBrefEventWorker}"
+      RetentionInDays: 30
   LaravelBrefLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: !Sub "/aws/lambda/${LaravelBref}"
       RetentionInDays: 30
+
   LambdaRole:
     Type: AWS::IAM::Role
     Properties:
@@ -94,3 +159,20 @@ Resources:
       Roles:
         - !Ref LambdaRole
 
+  LaravelCloudfrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        PriceClass: PriceClass_100
+        DefaultRootObject: ""
+        Enabled: true
+        Origins:
+          - Id: Lambda
+            DomainName: !Sub "${RestApi}.execute-api.us-east-1.amazonaws.com"
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+        DefaultCacheBehavior:
+          AllowedMethods: [GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE]
+          TargetOriginId: Lambda
+          ViewerProtocolPolicy: redirect-to-https
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
