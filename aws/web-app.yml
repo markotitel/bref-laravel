@@ -6,17 +6,16 @@ Parameters:
     Type: String
 
 Resources:
-
+  # Laravel S3 storage bucket
   Storage:
     Type: AWS::S3::Bucket
     Properties:
       BucketName: !Sub laravel-bref-storage-${AWS::AccountId}-${Env}
-
+  # Laravel public assets usually in public/js{css...}
   Assets:
     Type: AWS::S3::Bucket
     Properties:
       BucketName: !Sub laravel-bref-assets-${AWS::AccountId}-${Env}
-
   AssetsBucketPolicy:
     Type: AWS::S3::BucketPolicy
     Properties:
@@ -29,7 +28,6 @@ Resources:
             Resource: !Sub arn:aws:s3:::${Assets}/*
             Principal:
               CanonicalUser: !GetAtt AssetsBucketCFOAI.S3CanonicalUserId
-
   AssetsBucketCFOAI:
     Type: 'AWS::CloudFront::CloudFrontOriginAccessIdentity'
     Properties:
@@ -42,7 +40,6 @@ Resources:
       ProtocolType: HTTP
       Target: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${LaravelBref}/invocations
       Name: !Sub laravel-bref-${Env}
-
   RestApiConfig:
     Type: AWS::ApiGatewayV2::ApiGatewayManagedOverrides
     Properties: 
@@ -51,13 +48,11 @@ Resources:
         AccessLogSettings:
           DestinationArn: !GetAtt RestApiLogGroup.Arn
           Format: '$context.identity.sourceIp - - [$context.requestTime] "$context.httpMethod $context.routeKey $context.path $context.protocol" $context.status $context.responseLength $context.requestId'
-
   RestApiLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: !Sub "/aws/http-api/laravel-bref-${Env}"
       RetentionInDays: 30
-
   RestApiLambdaInvokePermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -72,15 +67,22 @@ Resources:
       FunctionName: !Sub laravel-bref-${Env}
       Layers:
         - arn:aws:lambda:us-east-1:209497400698:layer:php-74-fpm:17
-      Handler: "index.php"
+      Handler: "public/index.php"
       Runtime: "provided.al2"
       MemorySize: 256
       Timeout: 28
       Environment:
         Variables:
           ENV: !Ref Env
+          QUEUE_CONNECTION: sqs
+          SQS_QUEUE: !Ref LaravelBrefQueueDefault
       Role: !GetAtt LambdaRole.Arn
       Code: src/bref.zip
+  LaravelBrefLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${LaravelBref}"
+      RetentionInDays: 30
 
   LaravelBrefConsole:
     Type: "AWS::Lambda::Function"
@@ -89,15 +91,22 @@ Resources:
       Layers:
         - arn:aws:lambda:us-east-1:209497400698:layer:php-74:17
         - arn:aws:lambda:us-east-1:209497400698:layer:console:31
-      Handler: "index.php"
+      Handler: "artisan"
       Runtime: "provided.al2"
       MemorySize: 256
       Timeout: 28
       Environment:
         Variables:
           ENV: !Ref Env
+          QUEUE_CONNECTION: sqs
+          SQS_QUEUE: !Ref LaravelBrefQueueDefault
       Role: !GetAtt LambdaRole.Arn
       Code: src/bref.zip
+  LaravelBrefConsoleLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${LaravelBrefConsole}"
+      RetentionInDays: 30
 
   LaravelBrefEventWorker:
     Type: "AWS::Lambda::Function"
@@ -105,32 +114,64 @@ Resources:
       FunctionName: !Sub laravel-bref-eventworker-${Env}
       Layers:
         - arn:aws:lambda:us-east-1:209497400698:layer:php-74:17
-      Handler: "index.php"
+      Handler: "event.php"
+      DeadLetterConfig:
+        TargetArn: !GetAtt DeadLetterQueueEvent.Arn
       Runtime: "provided.al2"
       MemorySize: 256
       Timeout: 28
       Environment:
         Variables:
           ENV: !Ref Env
+          QUEUE_CONNECTION: sqs
+          SQS_QUEUE: !Ref LaravelBrefQueueDefault
       Role: !GetAtt LambdaRole.Arn
       Code: src/bref.zip
-
-
-  LaravelBrefConsoleLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub "/aws/lambda/${LaravelBrefConsole}"
-      RetentionInDays: 30
   LaravelBrefEventworkerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: !Sub "/aws/lambda/${LaravelBrefEventWorker}"
       RetentionInDays: 30
-  LaravelBrefLogGroup:
-    Type: AWS::Logs::LogGroup
+  DeadLetterQueueEvent:
+    Type: AWS::SQS::Queue
     Properties:
-      LogGroupName: !Sub "/aws/lambda/${LaravelBref}"
-      RetentionInDays: 30
+      MessageRetentionPeriod: 1209600 # maximum retention: 14 days
+
+  LaravelBrefQueueWorker:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      FunctionName: !Sub laravel-bref-queueworker-${Env}
+      Layers:
+        - arn:aws:lambda:us-east-1:209497400698:layer:php-74:17
+      Handler: "worker.php"
+      Runtime: "provided.al2"
+      MemorySize: 256
+      Timeout: 28
+      Environment:
+        Variables:
+          ENV: !Ref Env
+          QUEUE_CONNECTION: sqs
+          SQS_QUEUE: !Ref LaravelBrefQueueDefault
+      Role: !GetAtt LambdaRole.Arn
+      Code: src/bref-queue.zip
+
+  LaravelBrefQueuePoller:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      Enabled: true
+      EventSourceArn: !GetAtt LaravelBrefQueueDefault.Arn
+      FunctionName: !GetAtt LaravelBrefQueueWorker.Arn
+
+  LaravelBrefQueueDefault:
+    Type: AWS::SQS::Queue
+    Properties:
+      RedrivePolicy:
+        maxReceiveCount: 3 # jobs will be retried up to 3 times
+        deadLetterTargetArn: !GetAtt DeadLetterQueueWorker.Arn
+  DeadLetterQueueWorker:
+    Type: AWS::SQS::Queue
+    Properties:
+      MessageRetentionPeriod: 1209600 # maximum retention: 14 days
 
   LambdaRole:
     Type: AWS::IAM::Role
@@ -146,6 +187,7 @@ Resources:
                 - "lambda.amazonaws.com"
             Action:
               - "sts:AssumeRole"
+
   LambdaRolePolicy:
     Type: AWS::IAM::Policy
     Properties:
@@ -155,6 +197,9 @@ Resources:
         Statement:
           - Effect: Allow
             Action: "s3:*"
+            Resource: "*"
+          - Effect: Allow
+            Action: "sqs:*"
             Resource: "*"
       Roles:
         - !Ref LambdaRole
@@ -175,4 +220,4 @@ Resources:
           AllowedMethods: [GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE]
           TargetOriginId: Lambda
           ViewerProtocolPolicy: redirect-to-https
-          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad # AWS provided cache policy template

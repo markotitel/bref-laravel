@@ -2,7 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Log;
-
+use App\Jobs\ProcessPodcast;
 /*
 |--------------------------------------------------------------------------
 | Web Routes
@@ -20,4 +20,10 @@ Route::get('/', function () {
 Route::get('/env', function () {
     Log::debug($_ENV);
     return '_ENV is logged in CloudWatch';
+});
+Route::get('/queue', function () {
+    Log::info('Dispatching the job in background');
+    ProcessPodcast::dispatch(123456);
+
+    return view('welcome');
 });
