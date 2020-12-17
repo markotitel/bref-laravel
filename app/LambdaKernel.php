@@ -3,19 +3,11 @@
 
 namespace App;
 
-use App\Models\User;
 use Illuminate\Foundation\Console\Kernel;
 use Throwable;
-use \Illuminate\Contracts\Foundation\Application;
-use \Illuminate\Contracts\Events\Dispatcher;
 
 class LambdaKernel extends Kernel
 {
-
-    public function __construct(Application $app, Dispatcher $events)
-    {
-        parent::__construct($app, $events);
-    }
 
     /**
      * @param $event
