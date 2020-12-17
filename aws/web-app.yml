@@ -153,7 +153,7 @@ Resources:
           QUEUE_CONNECTION: sqs
           SQS_QUEUE: !Ref LaravelBrefQueueDefault
       Role: !GetAtt LambdaRole.Arn
-      Code: src/bref-queue.zip
+      Code: src/bref.zip
 
   LaravelBrefQueuePoller:
     Type: AWS::Lambda::EventSourceMapping
