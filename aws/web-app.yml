@@ -68,7 +68,7 @@ Resources:
     Properties:
       FunctionName: !Sub ${AppName}-laravel-bref-${Env}
       Layers:
-        - arn:aws:lambda:us-east-1:209497400698:layer:php-74-fpm:17
+        - !Sub arn:aws:lambda:${AWS::Region}:209497400698:layer:php-74-fpm:17
       Handler: "public/index.php"
       Runtime: "provided.al2"
       MemorySize: 256
@@ -91,8 +91,8 @@ Resources:
     Properties:
       FunctionName: !Sub ${AppName}-laravel-bref-console-${Env}
       Layers:
-        - arn:aws:lambda:us-east-1:209497400698:layer:php-74:17
-        - arn:aws:lambda:us-east-1:209497400698:layer:console:31
+        - !Sub arn:aws:lambda:${AWS::Region}:209497400698:layer:php-74:17
+        - !Sub arn:aws:lambda:${AWS::Region}:209497400698:layer:console:31
       Handler: "artisan"
       Runtime: "provided.al2"
       MemorySize: 256
@@ -115,7 +115,7 @@ Resources:
     Properties:
       FunctionName: !Sub ${AppName}-laravel-bref-eventworker-${Env}
       Layers:
-        - arn:aws:lambda:us-east-1:209497400698:layer:php-74:17
+        - !Sub arn:aws:lambda:${AWS::Region}:209497400698:layer:php-74:17
       Handler: "event.php"
       DeadLetterConfig:
         TargetArn: !GetAtt DeadLetterQueueEvent.Arn
@@ -144,7 +144,7 @@ Resources:
     Properties:
       FunctionName: !Sub ${AppName}-laravel-bref-queueworker-${Env}
       Layers:
-        - arn:aws:lambda:us-east-1:209497400698:layer:php-74:17
+        - !Sub arn:aws:lambda:${AWS::Region}:209497400698:layer:php-74:17
       Handler: "worker.php"
       Runtime: "provided.al2"
       MemorySize: 256
@@ -156,9 +156,13 @@ Resources:
           SQS_QUEUE: !Ref LaravelBrefQueueDefault
       Role: !GetAtt LambdaRole.Arn
       Code: src/bref.zip
+  LaravelBrefEventworkerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${LaravelBrefQueueWorker}"
+      RetentionInDays: 30
 
   LaravelBrefQueuePoller:
-    DependsOn: LaravelBrefQueueWorker
     Type: AWS::Lambda::EventSourceMapping
     Properties:
       Enabled: true
@@ -179,6 +183,13 @@ Resources:
   LambdaRole:
     Type: AWS::IAM::Role
     Properties:
+      Policies:
+        - PolicyName: LambdaSQSPermission
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action: "sqs:*"
+                Resource: "*"
       ManagedPolicyArns:
         - "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
       AssumeRolePolicyDocument:
@@ -201,9 +212,6 @@ Resources:
           - Effect: Allow
             Action: "s3:*"
             Resource: "*"
-          - Effect: Allow
-            Action: "sqs:*"
-            Resource: "*"
       Roles:
         - !Ref LambdaRole
 
@@ -217,7 +225,7 @@ Resources:
         Enabled: true
         Origins:
           - Id: Lambda
-            DomainName: !Sub "${RestApi}.execute-api.us-east-1.amazonaws.com"
+            DomainName: !Sub "${RestApi}.execute-api.${AWS::Region}.amazonaws.com"
             CustomOriginConfig:
               OriginProtocolPolicy: https-only
         DefaultCacheBehavior:
